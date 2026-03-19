@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thumbnail Analyzer — EloElo</title>
+  <meta name="description" content="AI-powered thumbnail analyzer for Indian content creators. Get instant CTR scores, design feedback, and context-aware tips." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./index.css" />
+</head>
+<body>
+  <!-- ═══ HEADER ═══ -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">🎨</span>
+        <h1 class="logo-text">Thumbnail Analyzer</h1>
+      </div>
+      <span class="version-badge">V4 — Context-Aware</span>
+    </div>
+  </header>
+
+
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="main">
+    <!-- ─── INPUT SECTION ─── -->
+    <section class="input-section">
+      <div class="input-grid">
+        <!-- Image Drop Zone -->
+        <div class="input-card drop-card">
+          <label class="input-label">📸 Thumbnail Image</label>
+          <div id="drop-zone" class="drop-zone" tabindex="0">
+            <div id="drop-placeholder" class="drop-placeholder">
+              <div class="drop-icon">📷</div>
+              <p>Drag & drop, paste (Ctrl+V), or click to browse</p>
+              <p class="hint">JPEG, PNG, WebP</p>
+            </div>
+            <img id="image-preview" class="image-preview" style="display:none;" alt="Thumbnail preview" />
+            <button id="clear-image" class="clear-btn" style="display:none;" title="Remove image">✕</button>
+          </div>
+          <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" style="display:none;" />
+        </div>
+
+        <!-- Title + Category + Script -->
+        <div class="input-card fields-card">
+          <div class="field-group">
+            <label class="input-label" for="title-input">📝 Video Title</label>
+            <input type="text" id="title-input" class="text-input" placeholder="e.g. Festive Offer Ya Trap?" />
+          </div>
+
+          <div class="field-group">
+            <label class="input-label" for="category-select">📂 Category</label>
+            <select id="category-select" class="select-input">
+              <option value="">Select category...</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label class="input-label" for="script-input">📄 Script <span class="optional">(optional)</span></label>
+            <textarea id="script-input" class="text-input textarea" placeholder="Paste your video script for script-aware feedback..." rows="4"></textarea>
+          </div>
+
+          <button id="analyze-btn" class="btn btn-primary btn-analyze" disabled>
+            <span class="btn-text">🔍 Analyze Thumbnail</span>
+            <span class="btn-loading" style="display:none;">
+              <span class="spinner"></span> Analyzing...
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── RESULTS SECTION (hidden until analysis) ─── -->
+    <section id="results-section" class="results-section" style="display:none;">
+      <h2 class="section-title">Analysis Results</h2>
+
+      <!-- Row 1: Score + Verdict + Breakdown -->
+      <div class="results-row results-row-hero">
+        <!-- Score Ring -->
+        <div class="result-card score-card">
+          <div class="card-header">🎯 Score</div>
+          <div class="score-ring-container">
+            <svg class="score-ring" viewBox="0 0 120 120">
+              <circle class="score-ring-bg" cx="60" cy="60" r="52" />
+              <circle id="score-ring-fill" class="score-ring-fill" cx="60" cy="60" r="52" />
+            </svg>
+            <div class="score-number">
+              <span id="score-value">0</span>
+              <span class="score-max">/100</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Verdict -->
+        <div class="result-card verdict-card">
+          <div class="card-header">🏷️ Verdict</div>
+          <div id="verdict-badge" class="verdict-badge">—</div>
+          <div id="content-type-badge" class="content-type-badge"></div>
+        </div>
+
+        <!-- Score Breakdown -->
+        <div class="result-card breakdown-card">
+          <div class="card-header">📊 Score Breakdown</div>
+          <div class="breakdown-bars">
+            <div class="breakdown-item">
+              <span class="breakdown-label">Design Quality</span>
+              <div class="breakdown-bar">
+                <div id="design-bar" class="breakdown-fill design-fill" style="width:0%"></div>
+              </div>
+              <span id="design-score" class="breakdown-value">0/75</span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Category Fit</span>
+              <div class="breakdown-bar">
+                <div id="cat-bar" class="breakdown-fill cat-fill" style="width:0%"></div>
+              </div>
+              <span id="cat-score" class="breakdown-value">0/25</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: Detected Text + Design Checklist -->
+      <div class="results-row">
+        <div class="result-card">
+          <div class="card-header">📝 Detected Text</div>
+          <p id="detected-text" class="result-text">—</p>
+        </div>
+
+        <div class="result-card">
+          <div class="card-header">✅ Design Checklist</div>
+          <div id="design-checklist" class="checklist"></div>
+        </div>
+      </div>
+
+      <!-- Row 3: Category Warnings & Tips -->
+      <div class="results-row">
+        <div class="result-card full-width">
+          <div class="card-header">⚠️ Category Warnings & Smart Tips</div>
+          <div id="warnings-tips" class="warnings-tips"></div>
+        </div>
+      </div>
+
+      <!-- Row 4: Design Fixes -->
+      <div class="results-row">
+        <div class="result-card full-width">
+          <div class="card-header">🔧 Design Fixes (Top 3)</div>
+          <ol id="design-fixes" class="design-fixes"></ol>
+        </div>
+      </div>
+
+      <!-- Row 5: Visual Analysis + Impact -->
+      <div class="results-row">
+        <div class="result-card">
+          <div class="card-header">🎨 Visual Analysis</div>
+          <div id="visual-analysis" class="chips-grid"></div>
+        </div>
+
+        <div class="result-card">
+          <div class="card-header">💥 Impact & Scroll-Stop Power</div>
+          <div id="impact-section" class="impact-section"></div>
+        </div>
+      </div>
+
+      <!-- Row 6: Colors & Impression -->
+      <div class="results-row">
+        <div class="result-card full-width">
+          <div class="card-header">🖼️ Colors & Overall Impression</div>
+          <div id="colors-impression" class="colors-impression"></div>
+        </div>
+      </div>
+
+      <!-- Row 7: Thumbnail Prompt -->
+      <div class="results-row">
+        <div class="result-card full-width prompt-card">
+          <div class="card-header">
+            📋 Thumbnail Redesign Prompt
+            <button id="copy-prompt-btn" class="btn btn-small btn-secondary">📋 Copy</button>
+          </div>
+          <p id="thumbnail-prompt" class="prompt-text">—</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── HISTORY SIDEBAR ─── -->
+    <aside id="history-panel" class="history-panel">
+      <div class="history-header">
+        <h3>📜 History</h3>
+        <button id="clear-history-btn" class="btn btn-small btn-ghost">Clear</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <p class="history-empty">No analyses yet</p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ═══ TOAST CONTAINER ═══ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
