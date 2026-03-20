@@ -53,6 +53,7 @@
                  <span id="profile-email" class="profile-email">user@example.com</span>
                </div>
              </div>
+             <button id="view-profile-btn" class="view-profile-btn">View Profile</button>
              <div class="dropdown-divider"></div>
              <button id="signout-btn" class="signout-btn">Sign out</button>
            </div>
@@ -260,6 +261,81 @@
        </div>
     </main>
 
+  </div>
+
+  <!-- ================= PROFILE MODAL ================= -->
+  <div class="profile-modal-overlay" id="profile-modal-overlay">
+    <div class="profile-modal" id="profile-modal">
+
+      <!-- Close button -->
+      <button class="profile-modal-close icon-btn material-symbols-outlined" id="profile-modal-close" aria-label="Close profile">close</button>
+
+      <!-- 1. Profile Header -->
+      <div class="profile-modal-header">
+        <img class="profile-modal-avatar" id="modal-avatar" alt="" />
+        <div class="profile-modal-info">
+          <h2 class="profile-modal-name" id="modal-name">User</h2>
+          <p class="profile-modal-email" id="modal-email">user@example.com</p>
+          <p class="profile-modal-since" id="modal-since"></p>
+        </div>
+      </div>
+
+      <div class="dropdown-divider"></div>
+
+      <!-- 2. Stats -->
+      <h3 class="profile-modal-section-title">
+        <span class="material-symbols-outlined">analytics</span> Your Stats
+      </h3>
+      <div class="profile-stats-grid">
+        <div class="profile-stat-card">
+          <span class="profile-stat-value" id="modal-stat-total">0</span>
+          <span class="profile-stat-label">Analyses</span>
+        </div>
+        <div class="profile-stat-card">
+          <span class="profile-stat-value" id="modal-stat-avg">0</span>
+          <span class="profile-stat-label">Avg Score</span>
+        </div>
+        <div class="profile-stat-card">
+          <span class="profile-stat-value" id="modal-stat-best">0</span>
+          <span class="profile-stat-label">Best Score</span>
+        </div>
+        <div class="profile-stat-card">
+          <span class="profile-stat-value" id="modal-stat-category">&mdash;</span>
+          <span class="profile-stat-label">Top Category</span>
+        </div>
+      </div>
+
+      <div class="dropdown-divider"></div>
+
+      <!-- 3. Settings -->
+      <h3 class="profile-modal-section-title">
+        <span class="material-symbols-outlined">settings</span> Settings
+      </h3>
+      <div class="profile-settings">
+        <div class="profile-setting-row">
+          <label class="gmail-input-label" for="modal-default-category">Default Category</label>
+          <select id="modal-default-category" class="gmail-select-input profile-setting-select">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="profile-setting-row">
+          <label class="gmail-input-label">Theme</label>
+          <button id="modal-theme-toggle" class="btn-secondary">
+            <span class="material-symbols-outlined">dark_mode</span>
+            <span id="modal-theme-label">Dark Mode</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="dropdown-divider"></div>
+
+      <!-- 4. Footer -->
+      <div class="profile-modal-footer">
+        <button id="modal-signout-btn" class="signout-btn">Sign out</button>
+        <button id="modal-close-btn" class="btn-secondary">Close</button>
+      </div>
+
+    </div>
   </div>
 
   <!-- Toast Notification Container -->

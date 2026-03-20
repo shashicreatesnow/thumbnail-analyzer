@@ -11,6 +11,7 @@ import { saveAnalysis, loadHistory, clearAllHistory, deleteAnalysis, signInWithG
 let currentImageBase64 = null;
 let analysisHistory = [];
 let currentUser = null;
+let currentTheme = localStorage.getItem('notion_theme') || 'light';
 
 // ══════════════════════════════════════════════════════════════
 // INIT
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupHistory();
   setupEditReanalyze();
   setupAuth();
+  setupProfileModal();
 
   // Menu Toggle
   document.getElementById('menu-toggle-btn').addEventListener('click', () => {
@@ -78,6 +80,10 @@ function populateCategories() {
     opt.textContent = cat;
     select.appendChild(opt);
   }
+  // Apply saved default category
+  const savedDefault = localStorage.getItem('default_category');
+  if (savedDefault) select.value = savedDefault;
+
   select.addEventListener('change', updateAnalyzeButton);
 }
 
@@ -430,26 +436,26 @@ function animateCounter(el, from, to, duration) {
 // ══════════════════════════════════════════════════════════════
 // THEME
 // ══════════════════════════════════════════════════════════════
-function setupTheme() {
+function applyTheme(theme) {
   const toggleBtn = document.getElementById('theme-toggle');
-  let currentTheme = localStorage.getItem('notion_theme') || 'light';
-  applyTheme(currentTheme);
-
-  toggleBtn.addEventListener('click', () => {
-    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-    localStorage.setItem('notion_theme', currentTheme);
-    applyTheme(currentTheme);
-  });
-
-  function applyTheme(theme) {
-    if (theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      toggleBtn.textContent = 'light_mode';
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-      toggleBtn.textContent = 'dark_mode';
-    }
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    toggleBtn.textContent = 'light_mode';
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    toggleBtn.textContent = 'dark_mode';
   }
+}
+
+function toggleTheme() {
+  currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+  localStorage.setItem('notion_theme', currentTheme);
+  applyTheme(currentTheme);
+}
+
+function setupTheme() {
+  applyTheme(currentTheme);
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -551,6 +557,143 @@ function updateUIForSignedOut() {
 
   document.getElementById('dropdown-signed-out').style.display = 'block';
   document.getElementById('dropdown-signed-in').style.display = 'none';
+}
+
+// ══════════════════════════════════════════════════════════════
+// PROFILE MODAL
+// ══════════════════════════════════════════════════════════════
+function setupProfileModal() {
+  const overlay = document.getElementById('profile-modal-overlay');
+  const modalCategorySelect = document.getElementById('modal-default-category');
+
+  // Populate the modal's default category dropdown
+  for (const cat of getAllCategories()) {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    modalCategorySelect.appendChild(opt);
+  }
+  const savedCat = localStorage.getItem('default_category');
+  if (savedCat) modalCategorySelect.value = savedCat;
+
+  // Open modal from "View Profile" button in dropdown
+  document.getElementById('view-profile-btn').addEventListener('click', () => {
+    document.getElementById('profile-dropdown').classList.remove('open');
+    openProfileModal();
+  });
+
+  // Close modal — X button, footer Close, backdrop click, ESC key
+  document.getElementById('profile-modal-close').addEventListener('click', closeProfileModal);
+  document.getElementById('modal-close-btn').addEventListener('click', closeProfileModal);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeProfileModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) closeProfileModal();
+  });
+
+  // Sign out from modal
+  document.getElementById('modal-signout-btn').addEventListener('click', async () => {
+    try {
+      await signOut();
+      closeProfileModal();
+      showToast('Signed out', 'info');
+    } catch (err) {
+      showToast('Sign-out failed: ' + err.message, 'error');
+    }
+  });
+
+  // Theme toggle in modal
+  document.getElementById('modal-theme-toggle').addEventListener('click', () => {
+    toggleTheme();
+    syncModalThemeButton();
+  });
+
+  // Default category setting
+  modalCategorySelect.addEventListener('change', () => {
+    const val = modalCategorySelect.value;
+    if (val) {
+      localStorage.setItem('default_category', val);
+    } else {
+      localStorage.removeItem('default_category');
+    }
+    // Sync the main form's category dropdown
+    document.getElementById('category-select').value = val;
+    updateAnalyzeButton();
+    showToast(val ? 'Default category saved' : 'Default category cleared', 'info');
+  });
+}
+
+function openProfileModal() {
+  if (!currentUser) return;
+
+  const overlay = document.getElementById('profile-modal-overlay');
+
+  // Fill profile data
+  const photoUrl = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture;
+  document.getElementById('modal-avatar').src = photoUrl || '';
+  document.getElementById('modal-name').textContent = currentUser.user_metadata?.full_name || 'User';
+  document.getElementById('modal-email').textContent = currentUser.email || '';
+
+  // Member since date
+  const sinceEl = document.getElementById('modal-since');
+  if (currentUser.created_at) {
+    const date = new Date(currentUser.created_at);
+    sinceEl.textContent = 'Member since ' + date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  } else {
+    sinceEl.textContent = '';
+  }
+
+  // Compute and fill stats
+  const stats = computeStats();
+  document.getElementById('modal-stat-total').textContent = stats.total;
+  document.getElementById('modal-stat-avg').textContent = stats.avgScore;
+  document.getElementById('modal-stat-best').textContent = stats.bestScore;
+  document.getElementById('modal-stat-category').textContent = stats.topCategory;
+
+  // Sync theme button label
+  syncModalThemeButton();
+
+  // Show modal
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeProfileModal() {
+  document.getElementById('profile-modal-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function syncModalThemeButton() {
+  const label = document.getElementById('modal-theme-label');
+  const icon = document.querySelector('#modal-theme-toggle .material-symbols-outlined');
+  if (currentTheme === 'dark') {
+    label.textContent = 'Light Mode';
+    icon.textContent = 'light_mode';
+  } else {
+    label.textContent = 'Dark Mode';
+    icon.textContent = 'dark_mode';
+  }
+}
+
+function computeStats() {
+  const total = analysisHistory.length;
+  if (total === 0) return { total: 0, avgScore: 0, bestScore: 0, topCategory: '\u2014' };
+
+  const scores = analysisHistory.map(e => e.total_score);
+  const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / total);
+  const bestScore = Math.max(...scores);
+
+  // Find most-used category
+  const catCounts = {};
+  for (const e of analysisHistory) {
+    catCounts[e.category] = (catCounts[e.category] || 0) + 1;
+  }
+  const topCategory = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+  return { total, avgScore, bestScore, topCategory };
 }
 
 // ══════════════════════════════════════════════════════════════
