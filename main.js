@@ -5,29 +5,65 @@
 import { getAllCategories, calculateScore, classifyTitleContent, buildDesignChecklist } from './src/research-engine.js';
 import { analyzeThumbnail } from './src/gemini-api.js';
 import { fileToBase64, pasteToBase64, resizeImage, createPreviewUrl } from './src/image-utils.js';
-import { saveAnalysis, loadHistory, clearAllHistory } from './src/supabase.js';
+import { saveAnalysis, loadHistory, clearAllHistory, deleteAnalysis, signInWithGoogle, signOut, getCurrentUser, onAuthChange } from './src/supabase.js';
 
 // ── State ──
 let currentImageBase64 = null;
 let analysisHistory = [];
+let currentUser = null;
 
 // ══════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  setupTheme();
   populateCategories();
   setupDropZone();
   setupAnalyzeButton();
   setupHistory();
+  setupEditReanalyze();
+  setupAuth();
+
+  // Menu Toggle
+  document.getElementById('menu-toggle-btn').addEventListener('click', () => {
+    const sidebar = document.querySelector('.gmail-sidebar');
+    if (window.innerWidth <= 768) {
+      sidebar.classList.toggle('mobile-open');
+      sidebar.classList.remove('collapsed');
+    } else {
+      sidebar.classList.toggle('collapsed');
+      sidebar.classList.remove('mobile-open');
+    }
+  });
+
+  // "New Analysis" Button — clears form and switches to input view
+  document.getElementById('analyze-new-btn').addEventListener('click', () => {
+    document.getElementById('results-section').style.display = 'none';
+    document.getElementById('input-section').style.display = 'block';
+    document.getElementById('title-input').value = '';
+    document.getElementById('script-input').value = '';
+    document.getElementById('category-select').value = '';
+    currentImageBase64 = null;
+    document.getElementById('drop-placeholder').style.display = 'block';
+    document.getElementById('image-preview').style.display = 'none';
+    document.getElementById('clear-image').style.display = 'none';
+    updateAnalyzeButton();
+  });
+
   setupCopyPrompt();
   updateAnalyzeButton();
 
-  // Load history from Supabase
+  // Initial auth check — load history if signed in
   try {
-    analysisHistory = await loadHistory();
+    currentUser = await getCurrentUser();
+    if (currentUser) {
+      updateUIForSignedIn(currentUser);
+      analysisHistory = await loadHistory();
+    }
     renderHistory();
   } catch (err) {
     console.warn('Could not load history from Supabase:', err.message);
+    renderHistory();
   }
 });
 
@@ -55,10 +91,8 @@ function setupDropZone() {
   const placeholder = document.getElementById('drop-placeholder');
   const clearBtn = document.getElementById('clear-image');
 
-  // Click to browse
   dropZone.addEventListener('click', () => fileInput.click());
 
-  // File input change
   fileInput.addEventListener('change', async (e) => {
     if (e.target.files?.[0]) await handleImageFile(e.target.files[0]);
   });
@@ -73,7 +107,7 @@ function setupDropZone() {
     if (file && file.type.startsWith('image/')) await handleImageFile(file);
   });
 
-  // Paste (Ctrl+V) — global listener
+  // Paste (Ctrl+V)
   document.addEventListener('paste', async (e) => {
     const base64 = await pasteToBase64(e);
     if (base64) {
@@ -83,7 +117,7 @@ function setupDropZone() {
     }
   });
 
-  // Clear
+  // Clear image
   clearBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     currentImageBase64 = null;
@@ -95,7 +129,6 @@ function setupDropZone() {
     updateAnalyzeButton();
   });
 
-  // Title input — update button state
   document.getElementById('title-input').addEventListener('input', updateAnalyzeButton);
 }
 
@@ -121,19 +154,31 @@ function showImagePreview(base64) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// ANALYZE BUTTON
+// ANALYZE BUTTON — with disabled tooltip
 // ══════════════════════════════════════════════════════════════
 function updateAnalyzeButton() {
   const btn = document.getElementById('analyze-btn');
   const hasImage = !!currentImageBase64;
   const hasTitle = document.getElementById('title-input').value.trim().length > 0;
   const hasCat = document.getElementById('category-select').value !== '';
-  btn.disabled = !(hasImage && hasTitle && hasCat);
+  const isReady = hasImage && hasTitle && hasCat;
+
+  btn.disabled = !isReady;
+
+  // Show tooltip explaining why button is disabled
+  if (!isReady) {
+    const missing = [];
+    if (!hasImage) missing.push('upload an image');
+    if (!hasTitle) missing.push('enter a title');
+    if (!hasCat) missing.push('select a category');
+    btn.title = 'To start: ' + missing.join(', ');
+  } else {
+    btn.title = 'Analyze this thumbnail';
+  }
 }
 
 function setupAnalyzeButton() {
-  const btn = document.getElementById('analyze-btn');
-  btn.addEventListener('click', runAnalysis);
+  document.getElementById('analyze-btn').addEventListener('click', runAnalysis);
 }
 
 async function runAnalysis() {
@@ -157,7 +202,7 @@ async function runAnalysis() {
     const scoreData = calculateScore(analysis, category, title);
     renderResults(analysis, scoreData, title, category);
     await saveToHistoryDB(analysis, scoreData, title, category);
-    showToast('✅ Analysis complete!', 'success');
+    showToast('Analysis complete!', 'success');
   } catch (err) {
     showToast('Analysis failed: ' + err.message, 'error');
     console.error('Analysis error:', err);
@@ -170,15 +215,32 @@ async function runAnalysis() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// RENDER RESULTS — All 11 Output Cards
+// EDIT & RE-ANALYZE — go back to form without clearing
+// ══════════════════════════════════════════════════════════════
+function setupEditReanalyze() {
+  document.getElementById('edit-reanalyze-btn').addEventListener('click', () => {
+    document.getElementById('results-section').style.display = 'none';
+    document.getElementById('input-section').style.display = 'block';
+    document.getElementById('title-input').focus();
+    // Keep image, title, category — user can tweak and re-analyze
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER RESULTS
 // ══════════════════════════════════════════════════════════════
 function renderResults(analysis, scoreData, title, category) {
+  document.getElementById('input-section').style.display = 'none';
   const section = document.getElementById('results-section');
   section.style.display = 'block';
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  // 1. Score Ring
-  animateScoreRing(scoreData.totalScore);
+  // Title
+  const threadTitle = document.getElementById('result-subject-title');
+  if (threadTitle) threadTitle.textContent = title ? `Analysis: ${title}` : 'Analysis Results';
+
+  // 1. Score Ring (delay to let scroll finish)
+  setTimeout(() => animateScoreRing(scoreData.totalScore), 400);
 
   // 2. Verdict Badge
   const verdictBadge = document.getElementById('verdict-badge');
@@ -218,12 +280,12 @@ function renderResults(analysis, scoreData, title, category) {
   const warningsTips = document.getElementById('warnings-tips');
   warningsTips.innerHTML = '';
   if (scoreData.catWarnings.length === 0 && scoreData.catTips.length === 0) {
-    warningsTips.innerHTML = `<div class="no-issues">✅ Good fit for ${category} (${scoreData.contentType} content)</div>`;
+    warningsTips.innerHTML = `<div class="no-issues">Good fit for ${category} (${scoreData.contentType} content)</div>`;
   } else {
     for (const w of scoreData.catWarnings) {
       const div = document.createElement('div');
       div.className = 'warning-item';
-      div.textContent = '⚠️ ' + w;
+      div.textContent = w;
       warningsTips.appendChild(div);
     }
     for (const t of scoreData.catTips) {
@@ -270,7 +332,6 @@ function renderResults(analysis, scoreData, title, category) {
   // 9. Impact & Scroll-Stop Power
   const impactSection = document.getElementById('impact-section');
   impactSection.innerHTML = '';
-
   const ssp = (analysis.scroll_stop_power || 'medium').toLowerCase();
   const gaugeClass = ssp === 'high' ? 'gauge-high' : ssp === 'low' ? 'gauge-low' : 'gauge-medium';
   impactSection.innerHTML = `
@@ -281,16 +342,15 @@ function renderResults(analysis, scoreData, title, category) {
     </div>
   `;
   if (analysis.face_expression && analysis.face_expression !== 'no face') {
-    impactSection.innerHTML += `<div class="impact-detail">😊 Face: ${analysis.face_expression}</div>`;
+    impactSection.innerHTML += `<div class="impact-detail">Face: ${analysis.face_expression}</div>`;
   }
   if (analysis.brand_consistency) {
-    impactSection.innerHTML += `<div class="impact-detail">🏷️ Quality: ${analysis.brand_consistency}</div>`;
+    impactSection.innerHTML += `<div class="impact-detail">Quality: ${analysis.brand_consistency}</div>`;
   }
 
   // 10. Colors & Impression
   const colorsImpression = document.getElementById('colors-impression');
   colorsImpression.innerHTML = '';
-
   if (analysis.dominant_colors) {
     const colorNames = analysis.dominant_colors.split(',').map(c => c.trim());
     const swatchesDiv = document.createElement('div');
@@ -303,13 +363,12 @@ function renderResults(analysis, scoreData, title, category) {
       swatch.title = name;
       swatchesDiv.appendChild(swatch);
       const label = document.createElement('span');
-      label.style.cssText = 'font-size:12px;color:var(--text-muted)';
+      label.className = 'color-label';
       label.textContent = name;
       swatchesDiv.appendChild(label);
     }
     colorsImpression.appendChild(swatchesDiv);
   }
-
   if (analysis.overall_impression) {
     const p = document.createElement('p');
     p.className = 'impression-text';
@@ -318,13 +377,14 @@ function renderResults(analysis, scoreData, title, category) {
   }
 
   // 11. Thumbnail Prompt
-  const promptText = document.getElementById('thumbnail-prompt');
-  promptText.textContent = analysis.complete_thumbnail_feedback || 'No feedback generated';
+  document.getElementById('thumbnail-prompt').textContent = analysis.complete_thumbnail_feedback || 'No feedback generated';
 
-  // Confetti on PUBLISH
-  if (scoreData.verdict === 'PUBLISH') {
-    spawnConfetti();
-  }
+  // Animate result cards in with stagger
+  const cards = section.querySelectorAll('.result-card');
+  cards.forEach((card, i) => {
+    card.style.animationDelay = (i * 0.08) + 's';
+    card.classList.add('card-enter');
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -335,11 +395,10 @@ function animateScoreRing(score) {
   const circumference = 2 * Math.PI * 52;
   const offset = circumference - (score / 100) * circumference;
 
-  // Color based on score
   let color;
-  if (score >= 70) color = 'var(--accent-success)';
-  else if (score >= 45) color = 'var(--accent-warning)';
-  else color = 'var(--accent-danger)';
+  if (score >= 70) color = 'var(--gm-success)';
+  else if (score >= 45) color = 'var(--gm-warning)';
+  else color = 'var(--gm-danger)';
 
   circle.style.stroke = color;
   circle.style.strokeDasharray = circumference;
@@ -352,7 +411,6 @@ function animateScoreRing(score) {
     });
   });
 
-  // Animate number counter
   const valueEl = document.getElementById('score-value');
   animateCounter(valueEl, 0, score, 1200);
   valueEl.style.color = color;
@@ -370,34 +428,137 @@ function animateCounter(el, from, to, duration) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// CONFETTI
+// THEME
 // ══════════════════════════════════════════════════════════════
-function spawnConfetti() {
-  const colors = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#8b5cf6', '#f43f5e'];
-  for (let i = 0; i < 40; i++) {
-    const piece = document.createElement('div');
-    piece.className = 'confetti-piece';
-    piece.style.left = Math.random() * 100 + 'vw';
-    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-    piece.style.animationDuration = (2 + Math.random() * 2) + 's';
-    piece.style.animationDelay = Math.random() * 0.5 + 's';
-    piece.style.width = (6 + Math.random() * 8) + 'px';
-    piece.style.height = (6 + Math.random() * 8) + 'px';
-    document.body.appendChild(piece);
-    setTimeout(() => piece.remove(), 4000);
+function setupTheme() {
+  const toggleBtn = document.getElementById('theme-toggle');
+  let currentTheme = localStorage.getItem('notion_theme') || 'light';
+  applyTheme(currentTheme);
+
+  toggleBtn.addEventListener('click', () => {
+    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('notion_theme', currentTheme);
+    applyTheme(currentTheme);
+  });
+
+  function applyTheme(theme) {
+    if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      toggleBtn.textContent = 'light_mode';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      toggleBtn.textContent = 'dark_mode';
+    }
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// SETTINGS
+// AUTH — Google Sign-In via Supabase
 // ══════════════════════════════════════════════════════════════
+function setupAuth() {
+  const avatarBtn = document.getElementById('avatar-btn');
+  const dropdown = document.getElementById('profile-dropdown');
+  const googleBtn = document.getElementById('google-signin-btn');
+  const signoutBtn = document.getElementById('signout-btn');
 
+  // Toggle dropdown on avatar click
+  avatarBtn.addEventListener('click', () => {
+    dropdown.classList.toggle('open');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.avatar-container')) {
+      dropdown.classList.remove('open');
+    }
+  });
+
+  // Google sign-in button
+  googleBtn.addEventListener('click', async () => {
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      showToast('Sign-in failed: ' + err.message, 'error');
+    }
+  });
+
+  // Sign-out button
+  signoutBtn.addEventListener('click', async () => {
+    try {
+      await signOut();
+      dropdown.classList.remove('open');
+      showToast('Signed out', 'info');
+    } catch (err) {
+      showToast('Sign-out failed: ' + err.message, 'error');
+    }
+  });
+
+  // Listen for auth state changes (sign-in, sign-out, token refresh)
+  onAuthChange(async (user) => {
+    currentUser = user;
+    if (user) {
+      updateUIForSignedIn(user);
+      try {
+        analysisHistory = await loadHistory();
+      } catch (err) {
+        console.warn('Failed to load history:', err.message);
+      }
+    } else {
+      updateUIForSignedOut();
+      analysisHistory = [];
+    }
+    renderHistory();
+  });
+}
+
+function updateUIForSignedIn(user) {
+  const avatarLetter = document.getElementById('avatar-letter');
+  const avatarImg = document.getElementById('avatar-img');
+  const profilePic = document.getElementById('profile-pic');
+  const profileName = document.getElementById('profile-name');
+  const profileEmail = document.getElementById('profile-email');
+
+  // Show Google profile pic in avatar
+  const photoUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+  if (photoUrl) {
+    avatarImg.src = photoUrl;
+    avatarImg.style.display = 'block';
+    avatarLetter.style.display = 'none';
+    profilePic.src = photoUrl;
+  } else {
+    const initial = (user.user_metadata?.full_name || user.email || 'U')[0].toUpperCase();
+    avatarLetter.textContent = initial;
+    avatarLetter.style.display = '';
+    avatarImg.style.display = 'none';
+    profilePic.src = '';
+  }
+
+  profileName.textContent = user.user_metadata?.full_name || 'User';
+  profileEmail.textContent = user.email || '';
+
+  // Toggle dropdown states
+  document.getElementById('dropdown-signed-out').style.display = 'none';
+  document.getElementById('dropdown-signed-in').style.display = 'block';
+}
+
+function updateUIForSignedOut() {
+  const avatarLetter = document.getElementById('avatar-letter');
+  const avatarImg = document.getElementById('avatar-img');
+
+  avatarLetter.textContent = 'U';
+  avatarLetter.style.display = '';
+  avatarImg.style.display = 'none';
+
+  document.getElementById('dropdown-signed-out').style.display = 'block';
+  document.getElementById('dropdown-signed-in').style.display = 'none';
+}
 
 // ══════════════════════════════════════════════════════════════
 // HISTORY — Supabase-backed
 // ══════════════════════════════════════════════════════════════
 function setupHistory() {
   document.getElementById('clear-history-btn').addEventListener('click', async () => {
+    if (!currentUser) return;
     try {
       await clearAllHistory();
       analysisHistory = [];
@@ -411,6 +572,10 @@ function setupHistory() {
 }
 
 async function saveToHistoryDB(analysis, scoreData, title, category) {
+  if (!currentUser) {
+    showToast('Sign in to save your analysis history', 'info');
+    return;
+  }
   try {
     const saved = await saveAnalysis({
       title,
@@ -431,14 +596,30 @@ async function saveToHistoryDB(analysis, scoreData, title, category) {
     renderHistory();
   } catch (err) {
     console.error('Failed to save to Supabase:', err);
-    showToast('⚠️ Analysis shown but failed to save to database: ' + err.message, 'error');
+    showToast('Analysis shown but failed to save to database', 'error');
   }
 }
 
 function renderHistory() {
   const list = document.getElementById('history-list');
+  if (!currentUser) {
+    list.innerHTML = `
+      <div class="history-empty">
+        <span class="material-symbols-outlined empty-icon">account_circle</span>
+        <p>Sign in to save history</p>
+        <p class="empty-hint">Your analyses will be saved across sessions</p>
+      </div>
+    `;
+    return;
+  }
   if (analysisHistory.length === 0) {
-    list.innerHTML = '<p class="history-empty">No analyses yet</p>';
+    list.innerHTML = `
+      <div class="history-empty">
+        <span class="material-symbols-outlined empty-icon">image_search</span>
+        <p>No analyses yet</p>
+        <p class="empty-hint">Upload a thumbnail to get started</p>
+      </div>
+    `;
     return;
   }
 
@@ -447,7 +628,6 @@ function renderHistory() {
     const div = document.createElement('div');
     div.className = 'history-item';
     div.addEventListener('click', () => {
-      // Reconstruct scoreData from DB fields
       const scoreData = {
         totalScore: entry.total_score,
         designScore: entry.design_score,
@@ -461,22 +641,29 @@ function renderHistory() {
       renderResults(entry.analysis, scoreData, entry.title, entry.category);
     });
 
-    const verdict = entry.verdict;
     const score = entry.total_score;
-    const verdictColor = verdict === 'PUBLISH' ? 'var(--accent-success)' :
-                         verdict === 'REVISE' ? 'var(--accent-warning)' : 'var(--accent-danger)';
-    const verdictBg = verdict === 'PUBLISH' ? 'var(--accent-success-glow)' :
-                      verdict === 'REVISE' ? 'var(--accent-warning-glow)' : 'var(--accent-danger-glow)';
+    const date = entry.created_at ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
 
     div.innerHTML = `
-      <div class="history-info">
-        <div class="history-title">${escapeHtml(entry.title)}</div>
-        <div class="history-meta">
-          <span>${entry.category}</span>
-          <span class="history-score" style="background:${verdictBg};color:${verdictColor}">${score}</span>
-        </div>
-      </div>
+      <span class="history-score">${score}</span>
+      <span class="history-title">${escapeHtml(entry.title || 'Untitled')}</span>
+      ${date ? `<span class="history-date">${date}</span>` : ''}
+      <button class="history-delete-btn material-symbols-outlined" title="Delete" aria-label="Delete analysis">close</button>
     `;
+
+    // Individual delete button
+    div.querySelector('.history-delete-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await deleteAnalysis(entry.id);
+        analysisHistory = analysisHistory.filter(h => h.id !== entry.id);
+        renderHistory();
+        showToast('Analysis deleted', 'info');
+      } catch (err) {
+        showToast('Failed to delete: ' + err.message, 'error');
+      }
+    });
+
     list.appendChild(div);
   }
 }
@@ -487,10 +674,10 @@ function renderHistory() {
 function setupCopyPrompt() {
   document.getElementById('copy-prompt-btn').addEventListener('click', async () => {
     const text = document.getElementById('thumbnail-prompt').textContent;
-    if (!text || text === '—') return;
+    if (!text || text === 'Waiting for analysis...') return;
     try {
       await navigator.clipboard.writeText(text);
-      showToast('📋 Prompt copied to clipboard!', 'success');
+      showToast('Prompt copied to clipboard!', 'success');
     } catch {
       showToast('Failed to copy. Please select and copy manually.', 'error');
     }
@@ -504,9 +691,10 @@ function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', 'alert');
   toast.innerHTML = `
     <span>${message}</span>
-    <button class="toast-close">✕</button>
+    <button class="toast-close" aria-label="Dismiss">✕</button>
   `;
 
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
@@ -514,7 +702,7 @@ function showToast(message, type = 'info') {
 
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateX(40px)';
+    toast.style.transform = 'translateY(12px)';
     toast.style.transition = 'all 300ms ease';
     setTimeout(() => toast.remove(), 300);
   }, 4000);
@@ -535,8 +723,7 @@ function getCSSColor(name) {
     'bright red': '#dc2626', 'bright green': '#22c55e', 'bright blue': '#2563eb',
     'neon green': '#4ade80', 'neon yellow': '#facc15', 'saffron': '#fb923c'
   };
-  const lowerName = name.toLowerCase().trim();
-  return map[lowerName] || '#6b7280';
+  return map[name.toLowerCase().trim()] || '#6b7280';
 }
 
 function escapeHtml(str) {

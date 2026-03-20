@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS analyses (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT NOW(),
 
+  -- Owner (links to Supabase Auth user)
+  user_id UUID REFERENCES auth.users(id),
+
   -- Input data
   title TEXT NOT NULL,
   category TEXT NOT NULL,
@@ -41,11 +44,33 @@ CREATE TABLE IF NOT EXISTS analyses (
 -- Index for faster sorting by date
 CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);
 
--- Enable Row Level Security (allow all for now — no auth)
+-- Index for user-scoped queries
+CREATE INDEX IF NOT EXISTS idx_analyses_user_id ON analyses(user_id);
+
+-- Enable Row Level Security
 ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
 
--- Policy: allow all operations (single-user tool, no auth)
-CREATE POLICY "Allow all operations" ON analyses
-  FOR ALL
-  USING (true)
-  WITH CHECK (true);
+-- ══════════════════════════════════════════════════════════════
+-- RLS POLICIES — Each user can only access their own analyses
+-- ══════════════════════════════════════════════════════════════
+-- NOTE: If upgrading from the old "Allow all operations" policy,
+-- run this in Supabase SQL Editor first:
+--
+--   DROP POLICY IF EXISTS "Allow all operations" ON analyses;
+--
+--   -- Add user_id column if it doesn't exist yet:
+--   ALTER TABLE analyses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
+--
+-- Then create the new per-user policies:
+
+CREATE POLICY "Users read own analyses"
+  ON analyses FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users insert own analyses"
+  ON analyses FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users delete own analyses"
+  ON analyses FOR DELETE
+  USING (auth.uid() = user_id);
