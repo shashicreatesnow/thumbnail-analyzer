@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // "New Analysis" Button — clears form and switches to input view
   document.getElementById('analyze-new-btn').addEventListener('click', () => {
+    closeMobileSidebar();
     document.getElementById('results-section').style.display = 'none';
     document.getElementById('input-section').style.display = 'block';
     document.getElementById('title-input').value = '';
@@ -55,18 +56,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupCopyPrompt();
   updateAnalyzeButton();
 
-  // Initial auth check — load history if signed in
-  try {
-    currentUser = await getCurrentUser();
-    if (currentUser) {
-      updateUIForSignedIn(currentUser);
-      analysisHistory = await loadHistory();
-    }
-    renderHistory();
-  } catch (err) {
-    console.warn('Could not load history from Supabase:', err.message);
-    renderHistory();
-  }
+  // Render initial empty state — onAuthChange (in setupAuth) will
+  // load history once auth state is resolved, avoiding duplicate loads
+  renderHistory();
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -139,6 +131,11 @@ function setupDropZone() {
 }
 
 async function handleImageFile(file) {
+  // Validate file size (max 10MB)
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('Image too large — max 10MB', 'error');
+    return;
+  }
   try {
     const base64 = await fileToBase64(file);
     currentImageBase64 = await resizeImage(base64);
@@ -286,7 +283,10 @@ function renderResults(analysis, scoreData, title, category) {
   const warningsTips = document.getElementById('warnings-tips');
   warningsTips.innerHTML = '';
   if (scoreData.catWarnings.length === 0 && scoreData.catTips.length === 0) {
-    warningsTips.innerHTML = `<div class="no-issues">Good fit for ${category} (${scoreData.contentType} content)</div>`;
+    const noIssues = document.createElement('div');
+    noIssues.className = 'no-issues';
+    noIssues.textContent = `Good fit for ${category} (${scoreData.contentType} content)`;
+    warningsTips.appendChild(noIssues);
   } else {
     for (const w of scoreData.catWarnings) {
       const div = document.createElement('div');
@@ -330,7 +330,14 @@ function renderResults(analysis, scoreData, title, category) {
     if (c.value) {
       const span = document.createElement('span');
       span.className = 'chip';
-      span.innerHTML = `<span class="chip-label">${c.label}:</span><span class="chip-value">${c.value}</span>`;
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'chip-label';
+      labelSpan.textContent = c.label + ':';
+      const valueSpan = document.createElement('span');
+      valueSpan.className = 'chip-value';
+      valueSpan.textContent = c.value;
+      span.appendChild(labelSpan);
+      span.appendChild(valueSpan);
       visualAnalysis.appendChild(span);
     }
   }
@@ -340,18 +347,36 @@ function renderResults(analysis, scoreData, title, category) {
   impactSection.innerHTML = '';
   const ssp = (analysis.scroll_stop_power || 'medium').toLowerCase();
   const gaugeClass = ssp === 'high' ? 'gauge-high' : ssp === 'low' ? 'gauge-low' : 'gauge-medium';
-  impactSection.innerHTML = `
-    <div class="impact-gauge">
-      <span class="gauge-label">Scroll-Stop</span>
-      <div class="gauge-bar"><div class="gauge-fill ${gaugeClass}"></div></div>
-      <span class="gauge-text ${ssp}">${ssp.toUpperCase()}</span>
-    </div>
-  `;
+
+  const gaugeDiv = document.createElement('div');
+  gaugeDiv.className = 'impact-gauge';
+  const gaugeLabel = document.createElement('span');
+  gaugeLabel.className = 'gauge-label';
+  gaugeLabel.textContent = 'Scroll-Stop';
+  const gaugeBar = document.createElement('div');
+  gaugeBar.className = 'gauge-bar';
+  const gaugeFill = document.createElement('div');
+  gaugeFill.className = 'gauge-fill ' + gaugeClass;
+  gaugeBar.appendChild(gaugeFill);
+  const gaugeText = document.createElement('span');
+  gaugeText.className = 'gauge-text ' + ssp;
+  gaugeText.textContent = ssp.toUpperCase();
+  gaugeDiv.appendChild(gaugeLabel);
+  gaugeDiv.appendChild(gaugeBar);
+  gaugeDiv.appendChild(gaugeText);
+  impactSection.appendChild(gaugeDiv);
+
   if (analysis.face_expression && analysis.face_expression !== 'no face') {
-    impactSection.innerHTML += `<div class="impact-detail">Face: ${analysis.face_expression}</div>`;
+    const faceDetail = document.createElement('div');
+    faceDetail.className = 'impact-detail';
+    faceDetail.textContent = 'Face: ' + analysis.face_expression;
+    impactSection.appendChild(faceDetail);
   }
   if (analysis.brand_consistency) {
-    impactSection.innerHTML += `<div class="impact-detail">Quality: ${analysis.brand_consistency}</div>`;
+    const qualityDetail = document.createElement('div');
+    qualityDetail.className = 'impact-detail';
+    qualityDetail.textContent = 'Quality: ' + analysis.brand_consistency;
+    impactSection.appendChild(qualityDetail);
   }
 
   // 10. Colors & Impression
@@ -691,7 +716,8 @@ function computeStats() {
   for (const e of analysisHistory) {
     catCounts[e.category] = (catCounts[e.category] || 0) + 1;
   }
-  const topCategory = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0][0];
+  const sorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+  const topCategory = sorted.length > 0 ? sorted[0][0] : '\u2014';
 
   return { total, avgScore, bestScore, topCategory };
 }
@@ -771,6 +797,7 @@ function renderHistory() {
     const div = document.createElement('div');
     div.className = 'history-item';
     div.addEventListener('click', () => {
+      closeMobileSidebar();
       const scoreData = {
         totalScore: entry.total_score,
         designScore: entry.design_score,
@@ -867,6 +894,12 @@ function getCSSColor(name) {
     'neon green': '#4ade80', 'neon yellow': '#facc15', 'saffron': '#fb923c'
   };
   return map[name.toLowerCase().trim()] || '#6b7280';
+}
+
+function closeMobileSidebar() {
+  if (window.innerWidth <= 768) {
+    document.querySelector('.gmail-sidebar').classList.remove('mobile-open');
+  }
 }
 
 function escapeHtml(str) {

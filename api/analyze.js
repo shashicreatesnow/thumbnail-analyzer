@@ -1,4 +1,21 @@
 export default async function handler(req, res) {
+  // CORS — restrict to your app's domain
+  const allowedOrigins = [
+    'https://thumbnail-analyzer.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:5174'
+  ];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Only allow POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
