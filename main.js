@@ -5,7 +5,8 @@
 import { getAllCategories, calculateScore, classifyTitleContent, buildDesignChecklist } from './src/research-engine.js';
 import { analyzeThumbnail } from './src/gemini-api.js';
 import { fileToBase64, pasteToBase64, resizeImage, createPreviewUrl } from './src/image-utils.js';
-import { saveAnalysis, loadHistory, clearAllHistory, deleteAnalysis, signInWithGoogle, signOut, getCurrentUser, onAuthChange } from './src/supabase.js';
+import { saveAnalysis, loadHistory, loadAllHistory, loadGuildFeed, loadAnalysis, clearAllHistory, deleteAnalysis, signInWithGoogle, signOut, getCurrentUser, onAuthChange } from './src/supabase.js';
+import { generateReport } from './src/pdf-export.js';
 
 // ── State ──
 let currentImageBase64 = null;
@@ -41,8 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // "New Analysis" Button — clears form and switches to input view
   document.getElementById('analyze-new-btn').addEventListener('click', () => {
     closeMobileSidebar();
-    document.getElementById('results-section').style.display = 'none';
-    document.getElementById('input-section').style.display = 'block';
+    showView('input');
     document.getElementById('title-input').value = '';
     document.getElementById('script-input').value = '';
     document.getElementById('category-select').value = '';
@@ -52,6 +52,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('clear-image').style.display = 'none';
     updateAnalyzeButton();
   });
+
+  // Dashboard nav button
+  document.getElementById('nav-dashboard-btn').addEventListener('click', () => {
+    closeMobileSidebar();
+    showView('dashboard');
+    renderDashboard();
+  });
+
+  // Guild nav button
+  document.getElementById('nav-guild-btn').addEventListener('click', () => {
+    closeMobileSidebar();
+    showView('guild');
+    renderGuild();
+  });
+
+  // PDF download button
+  document.getElementById('download-pdf-btn').addEventListener('click', () => downloadPDF());
 
   setupCopyPrompt();
   updateAnalyzeButton();
@@ -203,7 +220,7 @@ async function runAnalysis() {
   try {
     const analysis = await analyzeThumbnail(currentImageBase64, title, category, script);
     const scoreData = calculateScore(analysis, category, title);
-    renderResults(analysis, scoreData, title, category);
+    renderResults(analysis, scoreData, title, category, currentImageBase64);
     await saveToHistoryDB(analysis, scoreData, title, category);
     showToast('Analysis complete!', 'success');
   } catch (err) {
@@ -222,8 +239,7 @@ async function runAnalysis() {
 // ══════════════════════════════════════════════════════════════
 function setupEditReanalyze() {
   document.getElementById('edit-reanalyze-btn').addEventListener('click', () => {
-    document.getElementById('results-section').style.display = 'none';
-    document.getElementById('input-section').style.display = 'block';
+    showView('input');
     document.getElementById('title-input').focus();
     // Keep image, title, category — user can tweak and re-analyze
   });
@@ -232,11 +248,19 @@ function setupEditReanalyze() {
 // ══════════════════════════════════════════════════════════════
 // RENDER RESULTS
 // ══════════════════════════════════════════════════════════════
-function renderResults(analysis, scoreData, title, category) {
-  document.getElementById('input-section').style.display = 'none';
+function renderResults(analysis, scoreData, title, category, imageBase64) {
+  showView('results');
   const section = document.getElementById('results-section');
-  section.style.display = 'block';
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Show the analyzed thumbnail (small preview)
+  const resultImg = document.getElementById('result-thumbnail-img');
+  if (imageBase64) {
+    resultImg.src = createPreviewUrl(imageBase64);
+    resultImg.style.display = 'block';
+  } else {
+    resultImg.style.display = 'none';
+  }
 
   // Title
   const threadTitle = document.getElementById('result-subject-title');
@@ -723,6 +747,284 @@ function computeStats() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// VIEW SWITCHING
+// ══════════════════════════════════════════════════════════════
+function showView(viewName) {
+  const views = ['input-section', 'results-section', 'dashboard-section', 'guild-section'];
+  for (const id of views) {
+    document.getElementById(id).style.display = 'none';
+  }
+
+  const navBtns = document.querySelectorAll('.sidebar-nav-btn');
+  navBtns.forEach(btn => btn.classList.remove('active'));
+
+  switch (viewName) {
+    case 'input':
+      document.getElementById('input-section').style.display = 'block';
+      break;
+    case 'results':
+      document.getElementById('results-section').style.display = 'block';
+      break;
+    case 'dashboard':
+      document.getElementById('dashboard-section').style.display = 'block';
+      document.getElementById('nav-dashboard-btn').classList.add('active');
+      break;
+    case 'guild':
+      document.getElementById('guild-section').style.display = 'block';
+      document.getElementById('nav-guild-btn').classList.add('active');
+      break;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════
+async function renderDashboard() {
+  const grid = document.getElementById('dashboard-grid');
+
+  if (!currentUser) {
+    grid.innerHTML = `
+      <div class="dashboard-empty">
+        <span class="material-symbols-outlined">account_circle</span>
+        <p>Sign in to see your dashboard</p>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = `
+    <div class="dashboard-empty">
+      <span class="material-symbols-outlined">hourglass_top</span>
+      <p>Loading your analyses...</p>
+    </div>
+  `;
+
+  try {
+    const allAnalyses = await loadAllHistory();
+
+    // Update stats
+    if (allAnalyses.length > 0) {
+      const scores = allAnalyses.map(a => a.total_score);
+      const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+      const best = Math.max(...scores);
+      const catCounts = {};
+      for (const a of allAnalyses) {
+        catCounts[a.category] = (catCounts[a.category] || 0) + 1;
+      }
+      const sorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+      document.getElementById('dash-stat-total').textContent = allAnalyses.length;
+      document.getElementById('dash-stat-avg').textContent = avg;
+      document.getElementById('dash-stat-best').textContent = best;
+      document.getElementById('dash-stat-category').textContent = sorted.length > 0 ? sorted[0][0] : '\u2014';
+    } else {
+      document.getElementById('dash-stat-total').textContent = '0';
+      document.getElementById('dash-stat-avg').textContent = '0';
+      document.getElementById('dash-stat-best').textContent = '0';
+      document.getElementById('dash-stat-category').textContent = '\u2014';
+    }
+
+    if (allAnalyses.length === 0) {
+      grid.innerHTML = `
+        <div class="dashboard-empty">
+          <span class="material-symbols-outlined">image_search</span>
+          <p>No analyses yet</p>
+          <p style="font-size:12px;margin-top:4px;">Upload a thumbnail to get started</p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = '';
+    for (const entry of allAnalyses) {
+      const card = document.createElement('div');
+      card.className = 'dashboard-card';
+
+      const verdictClass = (entry.verdict || '').toLowerCase();
+      const date = entry.created_at
+        ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+        : '';
+
+      const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
+        ? `<img class="dashboard-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" />`
+        : `<div class="dashboard-card-thumb-placeholder"><span class="material-symbols-outlined">image</span></div>`;
+
+      card.innerHTML = `
+        ${thumbHtml}
+        <div class="dashboard-card-body">
+          <div class="dashboard-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
+          <div class="dashboard-card-meta">
+            <span class="dashboard-card-score ${verdictClass}">${entry.total_score}</span>
+            <span class="dashboard-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
+            <span class="dashboard-card-date">${date}</span>
+          </div>
+          <div class="dashboard-card-category">${escapeHtml(entry.category || '')}</div>
+        </div>
+      `;
+
+      card.addEventListener('click', async () => {
+        try {
+          const full = await loadAnalysis(entry.id);
+          const scoreData = {
+            totalScore: full.total_score,
+            designScore: full.design_score,
+            catScore: full.cat_score,
+            verdict: full.verdict,
+            contentType: full.content_type,
+            catWarnings: full.cat_warnings || [],
+            catTips: full.cat_tips || [],
+            designBreakdown: full.design_breakdown || []
+          };
+          showView('results');
+          renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
+        } catch (err) {
+          showToast('Failed to load analysis: ' + err.message, 'error');
+        }
+      });
+
+      grid.appendChild(card);
+    }
+  } catch (err) {
+    grid.innerHTML = `
+      <div class="dashboard-empty">
+        <span class="material-symbols-outlined">error</span>
+        <p>Failed to load: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// GUILD FEED
+// ══════════════════════════════════════════════════════════════
+async function renderGuild() {
+  const grid = document.getElementById('guild-grid');
+
+  grid.innerHTML = `
+    <div class="guild-empty">
+      <span class="material-symbols-outlined">hourglass_top</span>
+      <p>Loading the guild...</p>
+    </div>
+  `;
+
+  try {
+    const feed = await loadGuildFeed();
+
+    if (feed.length === 0) {
+      grid.innerHTML = `
+        <div class="guild-empty">
+          <span class="material-symbols-outlined">groups</span>
+          <p>No analyses in the guild yet</p>
+          <p style="font-size:12px;margin-top:4px;">Be the first to analyze a thumbnail!</p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = '';
+    for (const entry of feed) {
+      const card = document.createElement('div');
+      card.className = 'guild-card';
+
+      const verdictClass = (entry.verdict || '').toLowerCase();
+      const date = entry.created_at
+        ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+        : '';
+
+      const userName = entry.user_name || 'Anonymous';
+      const initial = userName[0].toUpperCase();
+      const avatarHtml = entry.user_avatar
+        ? `<img class="guild-card-avatar" src="${entry.user_avatar}" alt="" />`
+        : `<div class="guild-card-avatar-placeholder">${initial}</div>`;
+
+      const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
+        ? `<img class="guild-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" />`
+        : `<div class="guild-card-thumb-placeholder"><span class="material-symbols-outlined">image</span></div>`;
+
+      card.innerHTML = `
+        <div class="guild-card-user">
+          ${avatarHtml}
+          <span class="guild-card-name">${escapeHtml(userName)}</span>
+        </div>
+        ${thumbHtml}
+        <div class="guild-card-body">
+          <div class="guild-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
+          <div class="guild-card-meta">
+            <span class="guild-card-score ${verdictClass}">${entry.total_score}</span>
+            <span class="guild-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
+            <span class="guild-card-date">${date}</span>
+          </div>
+        </div>
+      `;
+
+      card.addEventListener('click', async () => {
+        try {
+          const full = await loadAnalysis(entry.id);
+          const scoreData = {
+            totalScore: full.total_score,
+            designScore: full.design_score,
+            catScore: full.cat_score,
+            verdict: full.verdict,
+            contentType: full.content_type,
+            catWarnings: full.cat_warnings || [],
+            catTips: full.cat_tips || [],
+            designBreakdown: full.design_breakdown || []
+          };
+          showView('results');
+          renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
+        } catch (err) {
+          showToast('Failed to load analysis: ' + err.message, 'error');
+        }
+      });
+
+      grid.appendChild(card);
+    }
+  } catch (err) {
+    grid.innerHTML = `
+      <div class="guild-empty">
+        <span class="material-symbols-outlined">error</span>
+        <p>Failed to load: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// PDF EXPORT
+// ══════════════════════════════════════════════════════════════
+async function downloadPDF() {
+  if (!currentUser) {
+    showToast('Sign in to download your report', 'info');
+    return;
+  }
+
+  const btn = document.getElementById('download-pdf-btn');
+  btn.classList.add('loading');
+  btn.innerHTML = '<span class="material-symbols-outlined">hourglass_top</span> Generating...';
+
+  try {
+    const allAnalyses = await loadAllHistory();
+    if (allAnalyses.length === 0) {
+      showToast('No analyses to export', 'info');
+      return;
+    }
+
+    // Load full data for each analysis (includes all fields needed for PDF)
+    const fullAnalyses = await Promise.all(
+      allAnalyses.map(a => loadAnalysis(a.id))
+    );
+
+    generateReport(fullAnalyses, currentUser);
+    showToast('PDF report downloaded!', 'success');
+  } catch (err) {
+    showToast('PDF generation failed: ' + err.message, 'error');
+    console.error('PDF error:', err);
+  } finally {
+    btn.classList.remove('loading');
+    btn.innerHTML = '<span class="material-symbols-outlined">picture_as_pdf</span> Download Report';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // HISTORY — Supabase-backed
 // ══════════════════════════════════════════════════════════════
 function setupHistory() {
@@ -796,19 +1098,26 @@ function renderHistory() {
   for (const entry of analysisHistory) {
     const div = document.createElement('div');
     div.className = 'history-item';
-    div.addEventListener('click', () => {
+    div.addEventListener('click', async () => {
       closeMobileSidebar();
+      // Load full record to get the thumbnail image
+      let fullEntry = entry;
+      try {
+        fullEntry = await loadAnalysis(entry.id);
+      } catch (err) {
+        console.warn('Could not load full analysis, using list data:', err);
+      }
       const scoreData = {
-        totalScore: entry.total_score,
-        designScore: entry.design_score,
-        catScore: entry.cat_score,
-        verdict: entry.verdict,
-        contentType: entry.content_type,
-        catWarnings: entry.cat_warnings || [],
-        catTips: entry.cat_tips || [],
-        designBreakdown: entry.design_breakdown || []
+        totalScore: fullEntry.total_score,
+        designScore: fullEntry.design_score,
+        catScore: fullEntry.cat_score,
+        verdict: fullEntry.verdict,
+        contentType: fullEntry.content_type,
+        catWarnings: fullEntry.cat_warnings || [],
+        catTips: fullEntry.cat_tips || [],
+        designBreakdown: fullEntry.design_breakdown || []
       };
-      renderResults(entry.analysis, scoreData, entry.title, entry.category);
+      renderResults(fullEntry.analysis, scoreData, fullEntry.title, fullEntry.category, fullEntry.image_base64);
     });
 
     const score = entry.total_score;

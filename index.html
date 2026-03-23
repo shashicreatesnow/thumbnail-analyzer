@@ -72,6 +72,17 @@
          <span class="compose-btn-text">New Analysis</span>
       </button>
 
+      <div class="sidebar-nav">
+        <button class="sidebar-nav-btn" id="nav-dashboard-btn">
+          <span class="material-symbols-outlined">dashboard</span>
+          <span class="sidebar-nav-label">My Dashboard</span>
+        </button>
+        <button class="sidebar-nav-btn" id="nav-guild-btn">
+          <span class="material-symbols-outlined">groups</span>
+          <span class="sidebar-nav-label">Guild</span>
+        </button>
+      </div>
+
       <div class="sidebar-labels">
         <div class="history-list-header">
           <span>Recent History</span>
@@ -152,6 +163,7 @@
               <!-- Row 1: Score + Verdict | Score Breakdown -->
               <div class="results-row">
                 <div class="result-card score-card">
+                  <img id="result-thumbnail-img" class="result-thumbnail" alt="Analyzed thumbnail" style="display:none;" />
                   <div class="score-ring-container">
                     <svg class="score-ring" viewBox="0 0 120 120">
                       <circle class="score-ring-bg" cx="60" cy="60" r="52"></circle>
@@ -255,6 +267,51 @@
                 </div>
               </div>
 
+            </div>
+          </div>
+
+          <!-- ═══════════ DASHBOARD SECTION ═══════════ -->
+          <div class="dashboard-section" id="dashboard-section">
+            <div class="dashboard-header">
+              <h2 class="section-heading">My Dashboard</h2>
+              <button class="btn-secondary" id="download-pdf-btn">
+                <span class="material-symbols-outlined">picture_as_pdf</span> Download Report
+              </button>
+            </div>
+
+            <div class="dashboard-stats" id="dashboard-stats">
+              <div class="stat-chip">
+                <span class="stat-value" id="dash-stat-total">0</span>
+                <span class="stat-label">Analyses</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-value" id="dash-stat-avg">0</span>
+                <span class="stat-label">Avg Score</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-value" id="dash-stat-best">0</span>
+                <span class="stat-label">Best Score</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-value" id="dash-stat-category">—</span>
+                <span class="stat-label">Top Category</span>
+              </div>
+            </div>
+
+            <div class="dashboard-grid" id="dashboard-grid">
+              <!-- Cards injected by JS -->
+            </div>
+          </div>
+
+          <!-- ═══════════ GUILD SECTION ═══════════ -->
+          <div class="guild-section" id="guild-section">
+            <div class="guild-header">
+              <h2 class="section-heading">Guild</h2>
+              <p class="guild-subtitle">See what everyone is analyzing</p>
+            </div>
+
+            <div class="guild-grid" id="guild-grid">
+              <!-- Cards injected by JS -->
             </div>
           </div>
 

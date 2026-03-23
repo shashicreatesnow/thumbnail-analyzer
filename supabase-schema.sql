@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS analyses (
   title TEXT NOT NULL,
   category TEXT NOT NULL,
   script TEXT,
-  image_base64 TEXT,  -- thumbnail preview (first 500 chars for small preview)
+  image_base64 TEXT,  -- full base64 thumbnail for display in history
 
   -- Score & verdict
   total_score INTEGER NOT NULL,
@@ -38,7 +38,11 @@ CREATE TABLE IF NOT EXISTS analyses (
   -- Warnings & tips (arrays stored as JSONB)
   cat_warnings JSONB DEFAULT '[]',
   cat_tips JSONB DEFAULT '[]',
-  design_breakdown JSONB DEFAULT '[]'
+  design_breakdown JSONB DEFAULT '[]',
+
+  -- User info (denormalized for Guild feed)
+  user_name TEXT,
+  user_avatar TEXT
 );
 
 -- Index for faster sorting by date
@@ -51,26 +55,28 @@ CREATE INDEX IF NOT EXISTS idx_analyses_user_id ON analyses(user_id);
 ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
 
 -- ══════════════════════════════════════════════════════════════
--- RLS POLICIES — Each user can only access their own analyses
+-- RLS POLICIES
 -- ══════════════════════════════════════════════════════════════
--- NOTE: If upgrading from the old "Allow all operations" policy,
--- run this in Supabase SQL Editor first:
+-- NOTE: If upgrading from the old policies, run this first:
 --
 --   DROP POLICY IF EXISTS "Allow all operations" ON analyses;
+--   DROP POLICY IF EXISTS "Users read own analyses" ON analyses;
 --
---   -- Add user_id column if it doesn't exist yet:
 --   ALTER TABLE analyses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
---
--- Then create the new per-user policies:
+--   ALTER TABLE analyses ADD COLUMN IF NOT EXISTS user_name TEXT;
+--   ALTER TABLE analyses ADD COLUMN IF NOT EXISTS user_avatar TEXT;
 
-CREATE POLICY "Users read own analyses"
+-- Anyone can read all analyses (needed for Guild feed)
+CREATE POLICY "Anyone can read all analyses"
   ON analyses FOR SELECT
-  USING (auth.uid() = user_id);
+  USING (true);
 
+-- Only the owner can insert their own analyses
 CREATE POLICY "Users insert own analyses"
   ON analyses FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+-- Only the owner can delete their own analyses
 CREATE POLICY "Users delete own analyses"
   ON analyses FOR DELETE
   USING (auth.uid() = user_id);

@@ -47,7 +47,7 @@ export async function saveAnalysis({ title, category, script, imageBase64, total
       title,
       category,
       script: script || null,
-      image_base64: imageBase64 ? imageBase64.substring(0, 500) : null,
+      image_base64: imageBase64 || null,
       total_score: totalScore,
       verdict,
       content_type: contentType,
@@ -61,7 +61,9 @@ export async function saveAnalysis({ title, category, script, imageBase64, total
       complete_thumbnail_feedback: analysis.complete_thumbnail_feedback || null,
       cat_warnings: catWarnings || [],
       cat_tips: catTips || [],
-      design_breakdown: designBreakdown || []
+      design_breakdown: designBreakdown || [],
+      user_name: user.user_metadata?.full_name || null,
+      user_avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || null
     })
     .select()
     .single();
@@ -70,18 +72,46 @@ export async function saveAnalysis({ title, category, script, imageBase64, total
   return data;
 }
 
-// ── Load analysis history from Supabase ──
+// ── Load user's own history (sidebar, limited) ──
 export async function loadHistory(limit = 30) {
   const user = await getCurrentUser();
   if (!user) return [];
 
   const { data, error } = await supabase
     .from('analyses')
-    .select('id, created_at, title, category, total_score, verdict, content_type, image_base64, analysis, cat_warnings, cat_tips, design_breakdown, design_score, cat_score')
+    .select('id, created_at, title, category, total_score, verdict, content_type, analysis, cat_warnings, cat_tips, design_breakdown, design_score, cat_score')
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(limit);
 
   if (error) throw new Error('Failed to load history: ' + error.message);
+  return data || [];
+}
+
+// ── Load ALL user's analyses (for dashboard) ──
+export async function loadAllHistory() {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('analyses')
+    .select('id, created_at, title, category, total_score, verdict, content_type, image_base64, design_score, cat_score')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error('Failed to load all history: ' + error.message);
+  return data || [];
+}
+
+// ── Load Guild feed (all users) ──
+export async function loadGuildFeed(limit = 50) {
+  const { data, error } = await supabase
+    .from('analyses')
+    .select('id, created_at, title, category, total_score, verdict, image_base64, user_name, user_avatar')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error('Failed to load guild feed: ' + error.message);
   return data || [];
 }
 
