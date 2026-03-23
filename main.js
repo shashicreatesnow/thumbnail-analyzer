@@ -779,6 +779,87 @@ function showView(viewName) {
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD
 // ══════════════════════════════════════════════════════════════
+let dashboardData = [];
+
+function populateDashboardFilters(analyses) {
+  const catSelect = document.getElementById('dash-category-filter');
+  const categories = [...new Set(analyses.map(a => a.category).filter(Boolean))].sort();
+  catSelect.innerHTML = '<option value="">All Categories</option>';
+  for (const cat of categories) {
+    catSelect.innerHTML += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
+  }
+}
+
+function renderDashboardCards(analyses) {
+  const grid = document.getElementById('dashboard-grid');
+  const search = (document.getElementById('dash-search').value || '').toLowerCase().trim();
+  const catFilter = document.getElementById('dash-category-filter').value;
+
+  let filtered = analyses;
+  if (search) filtered = filtered.filter(a => (a.title || '').toLowerCase().includes(search));
+  if (catFilter) filtered = filtered.filter(a => a.category === catFilter);
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div class="dashboard-empty">
+        <span class="material-symbols-outlined">filter_list_off</span>
+        <p>No results match your filters</p>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = '';
+  for (const entry of filtered) {
+    const card = document.createElement('div');
+    card.className = 'dashboard-card';
+
+    const verdictClass = (entry.verdict || '').toLowerCase();
+    const date = entry.created_at
+      ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+      : '';
+
+    const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
+      ? `<img class="dashboard-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" onerror="this.outerHTML='<div class=\\'dashboard-card-thumb-placeholder\\'><span class=\\'material-symbols-outlined\\'>image_not_supported</span></div>'" />`
+      : `<div class="dashboard-card-thumb-placeholder"><span class="material-symbols-outlined">image_not_supported</span></div>`;
+
+    card.innerHTML = `
+      ${thumbHtml}
+      <div class="dashboard-card-body">
+        <div class="dashboard-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
+        <div class="dashboard-card-meta">
+          <span class="dashboard-card-score ${verdictClass}">${entry.total_score}</span>
+          <span class="dashboard-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
+          <span class="dashboard-card-date">${date}</span>
+        </div>
+        <div class="dashboard-card-category">${escapeHtml(entry.category || '')}</div>
+      </div>
+    `;
+
+    card.addEventListener('click', async () => {
+      try {
+        const full = await loadAnalysis(entry.id);
+        const scoreData = {
+          totalScore: full.total_score,
+          designScore: full.design_score,
+          catScore: full.cat_score,
+          verdict: full.verdict,
+          contentType: full.content_type,
+          catWarnings: full.cat_warnings || [],
+          catTips: full.cat_tips || [],
+          designBreakdown: full.design_breakdown || []
+        };
+        showView('results');
+        renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
+      } catch (err) {
+        showToast('Failed to load analysis: ' + err.message, 'error');
+      }
+    });
+
+    grid.appendChild(card);
+  }
+}
+
 async function renderDashboard() {
   const grid = document.getElementById('dashboard-grid');
 
@@ -800,19 +881,19 @@ async function renderDashboard() {
   `;
 
   try {
-    const allAnalyses = await loadAllHistory();
+    dashboardData = await loadAllHistory();
 
     // Update stats
-    if (allAnalyses.length > 0) {
-      const scores = allAnalyses.map(a => a.total_score);
+    if (dashboardData.length > 0) {
+      const scores = dashboardData.map(a => a.total_score);
       const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
       const best = Math.max(...scores);
       const catCounts = {};
-      for (const a of allAnalyses) {
+      for (const a of dashboardData) {
         catCounts[a.category] = (catCounts[a.category] || 0) + 1;
       }
       const sorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
-      document.getElementById('dash-stat-total').textContent = allAnalyses.length;
+      document.getElementById('dash-stat-total').textContent = dashboardData.length;
       document.getElementById('dash-stat-avg').textContent = avg;
       document.getElementById('dash-stat-best').textContent = best;
       document.getElementById('dash-stat-category').textContent = sorted.length > 0 ? sorted[0][0] : '\u2014';
@@ -823,7 +904,7 @@ async function renderDashboard() {
       document.getElementById('dash-stat-category').textContent = '\u2014';
     }
 
-    if (allAnalyses.length === 0) {
+    if (dashboardData.length === 0) {
       grid.innerHTML = `
         <div class="dashboard-empty">
           <span class="material-symbols-outlined">image_search</span>
@@ -834,55 +915,8 @@ async function renderDashboard() {
       return;
     }
 
-    grid.innerHTML = '';
-    for (const entry of allAnalyses) {
-      const card = document.createElement('div');
-      card.className = 'dashboard-card';
-
-      const verdictClass = (entry.verdict || '').toLowerCase();
-      const date = entry.created_at
-        ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-        : '';
-
-      const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
-        ? `<img class="dashboard-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" />`
-        : `<div class="dashboard-card-thumb-placeholder"><span class="material-symbols-outlined">image</span></div>`;
-
-      card.innerHTML = `
-        ${thumbHtml}
-        <div class="dashboard-card-body">
-          <div class="dashboard-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
-          <div class="dashboard-card-meta">
-            <span class="dashboard-card-score ${verdictClass}">${entry.total_score}</span>
-            <span class="dashboard-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
-            <span class="dashboard-card-date">${date}</span>
-          </div>
-          <div class="dashboard-card-category">${escapeHtml(entry.category || '')}</div>
-        </div>
-      `;
-
-      card.addEventListener('click', async () => {
-        try {
-          const full = await loadAnalysis(entry.id);
-          const scoreData = {
-            totalScore: full.total_score,
-            designScore: full.design_score,
-            catScore: full.cat_score,
-            verdict: full.verdict,
-            contentType: full.content_type,
-            catWarnings: full.cat_warnings || [],
-            catTips: full.cat_tips || [],
-            designBreakdown: full.design_breakdown || []
-          };
-          showView('results');
-          renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
-        } catch (err) {
-          showToast('Failed to load analysis: ' + err.message, 'error');
-        }
-      });
-
-      grid.appendChild(card);
-    }
+    populateDashboardFilters(dashboardData);
+    renderDashboardCards(dashboardData);
   } catch (err) {
     grid.innerHTML = `
       <div class="dashboard-empty">
@@ -893,9 +927,113 @@ async function renderDashboard() {
   }
 }
 
+// Dashboard filter listeners
+document.getElementById('dash-search').addEventListener('input', () => renderDashboardCards(dashboardData));
+document.getElementById('dash-category-filter').addEventListener('change', () => renderDashboardCards(dashboardData));
+
 // ══════════════════════════════════════════════════════════════
 // GUILD FEED
 // ══════════════════════════════════════════════════════════════
+let guildData = [];
+
+function populateGuildFilters(feed) {
+  const catSelect = document.getElementById('guild-category-filter');
+  const userSelect = document.getElementById('guild-user-filter');
+
+  const categories = [...new Set(feed.map(a => a.category).filter(Boolean))].sort();
+  catSelect.innerHTML = '<option value="">All Categories</option>';
+  for (const cat of categories) {
+    catSelect.innerHTML += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
+  }
+
+  const users = [...new Set(feed.map(a => a.user_name || 'Anonymous'))].sort();
+  userSelect.innerHTML = '<option value="">All Users</option>';
+  for (const u of users) {
+    userSelect.innerHTML += `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`;
+  }
+}
+
+function renderGuildCards(feed) {
+  const grid = document.getElementById('guild-grid');
+  const search = (document.getElementById('guild-search').value || '').toLowerCase().trim();
+  const catFilter = document.getElementById('guild-category-filter').value;
+  const userFilter = document.getElementById('guild-user-filter').value;
+
+  let filtered = feed;
+  if (search) filtered = filtered.filter(a => (a.title || '').toLowerCase().includes(search));
+  if (catFilter) filtered = filtered.filter(a => a.category === catFilter);
+  if (userFilter) filtered = filtered.filter(a => (a.user_name || 'Anonymous') === userFilter);
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div class="guild-empty">
+        <span class="material-symbols-outlined">filter_list_off</span>
+        <p>No results match your filters</p>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = '';
+  for (const entry of filtered) {
+    const card = document.createElement('div');
+    card.className = 'guild-card';
+
+    const verdictClass = (entry.verdict || '').toLowerCase();
+    const date = entry.created_at
+      ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+      : '';
+
+    const userName = entry.user_name || 'Anonymous';
+    const initial = userName[0].toUpperCase();
+    const avatarHtml = entry.user_avatar
+      ? `<img class="guild-card-avatar" src="${entry.user_avatar}" alt="" />`
+      : `<div class="guild-card-avatar-placeholder">${initial}</div>`;
+
+    const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
+      ? `<img class="guild-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" onerror="this.outerHTML='<div class=\\'guild-card-thumb-placeholder\\'><span class=\\'material-symbols-outlined\\'>image_not_supported</span></div>'" />`
+      : `<div class="guild-card-thumb-placeholder"><span class="material-symbols-outlined">image_not_supported</span></div>`;
+
+    card.innerHTML = `
+      <div class="guild-card-user">
+        ${avatarHtml}
+        <span class="guild-card-name">${escapeHtml(userName)}</span>
+      </div>
+      ${thumbHtml}
+      <div class="guild-card-body">
+        <div class="guild-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
+        <div class="guild-card-meta">
+          <span class="guild-card-score ${verdictClass}">${entry.total_score}</span>
+          <span class="guild-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
+          <span class="guild-card-date">${date}</span>
+        </div>
+      </div>
+    `;
+
+    card.addEventListener('click', async () => {
+      try {
+        const full = await loadAnalysis(entry.id);
+        const scoreData = {
+          totalScore: full.total_score,
+          designScore: full.design_score,
+          catScore: full.cat_score,
+          verdict: full.verdict,
+          contentType: full.content_type,
+          catWarnings: full.cat_warnings || [],
+          catTips: full.cat_tips || [],
+          designBreakdown: full.design_breakdown || []
+        };
+        showView('results');
+        renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
+      } catch (err) {
+        showToast('Failed to load analysis: ' + err.message, 'error');
+      }
+    });
+
+    grid.appendChild(card);
+  }
+}
+
 async function renderGuild() {
   const grid = document.getElementById('guild-grid');
 
@@ -907,9 +1045,9 @@ async function renderGuild() {
   `;
 
   try {
-    const feed = await loadGuildFeed();
+    guildData = await loadGuildFeed();
 
-    if (feed.length === 0) {
+    if (guildData.length === 0) {
       grid.innerHTML = `
         <div class="guild-empty">
           <span class="material-symbols-outlined">groups</span>
@@ -920,64 +1058,8 @@ async function renderGuild() {
       return;
     }
 
-    grid.innerHTML = '';
-    for (const entry of feed) {
-      const card = document.createElement('div');
-      card.className = 'guild-card';
-
-      const verdictClass = (entry.verdict || '').toLowerCase();
-      const date = entry.created_at
-        ? new Date(entry.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-        : '';
-
-      const userName = entry.user_name || 'Anonymous';
-      const initial = userName[0].toUpperCase();
-      const avatarHtml = entry.user_avatar
-        ? `<img class="guild-card-avatar" src="${entry.user_avatar}" alt="" />`
-        : `<div class="guild-card-avatar-placeholder">${initial}</div>`;
-
-      const thumbHtml = entry.image_base64 && entry.image_base64.length > 100
-        ? `<img class="guild-card-thumb" src="${createPreviewUrl(entry.image_base64)}" alt="Thumbnail" loading="lazy" />`
-        : `<div class="guild-card-thumb-placeholder"><span class="material-symbols-outlined">image</span></div>`;
-
-      card.innerHTML = `
-        <div class="guild-card-user">
-          ${avatarHtml}
-          <span class="guild-card-name">${escapeHtml(userName)}</span>
-        </div>
-        ${thumbHtml}
-        <div class="guild-card-body">
-          <div class="guild-card-title">${escapeHtml(entry.title || 'Untitled')}</div>
-          <div class="guild-card-meta">
-            <span class="guild-card-score ${verdictClass}">${entry.total_score}</span>
-            <span class="guild-card-verdict ${verdictClass}">${entry.verdict || ''}</span>
-            <span class="guild-card-date">${date}</span>
-          </div>
-        </div>
-      `;
-
-      card.addEventListener('click', async () => {
-        try {
-          const full = await loadAnalysis(entry.id);
-          const scoreData = {
-            totalScore: full.total_score,
-            designScore: full.design_score,
-            catScore: full.cat_score,
-            verdict: full.verdict,
-            contentType: full.content_type,
-            catWarnings: full.cat_warnings || [],
-            catTips: full.cat_tips || [],
-            designBreakdown: full.design_breakdown || []
-          };
-          showView('results');
-          renderResults(full.analysis, scoreData, full.title, full.category, full.image_base64);
-        } catch (err) {
-          showToast('Failed to load analysis: ' + err.message, 'error');
-        }
-      });
-
-      grid.appendChild(card);
-    }
+    populateGuildFilters(guildData);
+    renderGuildCards(guildData);
   } catch (err) {
     grid.innerHTML = `
       <div class="guild-empty">
@@ -987,6 +1069,11 @@ async function renderGuild() {
     `;
   }
 }
+
+// Guild filter listeners
+document.getElementById('guild-search').addEventListener('input', () => renderGuildCards(guildData));
+document.getElementById('guild-category-filter').addEventListener('change', () => renderGuildCards(guildData));
+document.getElementById('guild-user-filter').addEventListener('change', () => renderGuildCards(guildData));
 
 // ══════════════════════════════════════════════════════════════
 // PDF EXPORT

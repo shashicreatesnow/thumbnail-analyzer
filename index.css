@@ -1241,6 +1241,63 @@ body {
 @media (max-width: 768px) { .dashboard-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px) { .dashboard-grid { grid-template-columns: 1fr; } }
 
+/* ── Filter Bar ── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.filter-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+  padding: 7px 12px;
+  border: 1px solid var(--gm-border);
+  border-radius: 20px;
+  background: var(--gm-card-bg);
+  transition: border-color 0.2s;
+}
+.filter-search:focus-within { border-color: var(--gm-compose-bg); }
+.filter-search .material-symbols-outlined { font-size: 18px; color: var(--gm-text-muted); }
+.filter-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--gm-text-main);
+  width: 100%;
+  font-family: inherit;
+}
+.filter-search input::placeholder { color: var(--gm-text-muted); }
+.filter-bar select {
+  padding: 7px 12px;
+  border: 1px solid var(--gm-border);
+  border-radius: 20px;
+  background: var(--gm-card-bg);
+  color: var(--gm-text-main);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+.filter-bar select:focus { border-color: var(--gm-compose-bg); }
+@media (max-width: 480px) {
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-search { max-width: none; }
+}
+
 .dashboard-card {
   position: relative;
   background: var(--gm-card-bg);
@@ -1257,7 +1314,7 @@ body {
 
 .dashboard-card-thumb {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 3 / 4;
   object-fit: cover;
   display: block;
   background: var(--gm-hover);
@@ -1265,13 +1322,13 @@ body {
 
 .dashboard-card-thumb-placeholder {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 3 / 4;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--gm-hover);
-  color: var(--gm-text-muted);
-  font-size: 28px;
+  color: var(--gm-border);
+  font-size: 40px;
 }
 
 .dashboard-card-body {
@@ -1421,7 +1478,7 @@ body {
 
 .guild-card-thumb {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 3 / 4;
   object-fit: cover;
   display: block;
   background: var(--gm-hover);
@@ -1429,13 +1486,13 @@ body {
 
 .guild-card-thumb-placeholder {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 3 / 4;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--gm-hover);
-  color: var(--gm-text-muted);
-  font-size: 28px;
+  color: var(--gm-border);
+  font-size: 40px;
 }
 
 .guild-card-body {
